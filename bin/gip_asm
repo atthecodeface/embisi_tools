@@ -476,7 +476,7 @@ sub output_1 {
 
     if ( ($current_address == ($address-2)) &&
          (($address&3)==2) ) {
-        printf DEST "%08x: %08x  %s\n", $current_address, $current_data | ($value<<16), $pending_comment;
+        printf DEST "%08x: %08x  #%s\n", $current_address/4, $current_data | ($value<<16), $pending_comment;
         $current_address = -1;
         $pending_comment = "";
     } else {
@@ -499,12 +499,12 @@ sub output_comment {
     my ( $pass, $comment ) = @_;
     return if ($pass<2);
     if ($current_address==-1) {
-        print DEST "                    $pending_comment\n" if ($pending_comment ne "");
-        print DEST "                    $comment\n";
+        print DEST "                    #$pending_comment\n" if ($pending_comment ne "");
+        print DEST "                    #$comment\n";
         $pending_comment = "";
     } else {
         if ($pending_comment ne "") {
-            $pending_comment .= "\n                    $comment";
+            $pending_comment .= "\n                    #$comment";
         } else {
             $pending_comment = $comment;
         }
@@ -517,13 +517,13 @@ sub output_flush {
     return if ($pass<2);
     if ($current_address>=0) {
         if (($current_address&3)==0) {
-            printf DEST "%08x: %08x \n", $current_address, $current_data;
+            printf DEST "%08x: %08x \n", $current_address/4, $current_data;
         } else {
-            printf DEST "%08x: %08x \n", $current_address&~3, $current_data<<16;
+            printf DEST "%08x: %08x \n", ($current_address&~3)/4, $current_data<<16;
         }
     }
     if ($pending_comment) {
-        print DEST "                    $pending_comment\n";
+        print DEST "                    #$pending_comment\n";
     }
     close DEST if ($pass==2);
     return;
