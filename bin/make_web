@@ -1,0 +1,272 @@
+#!/usr/bin/perl
+
+#a Globals
+#v references
+$#references=-1;
+
+#a Functions
+#f clean_path
+sub clean_path {
+    my ($ref) = @_;
+    $ref =~ s/\/.\///g;
+    $ref =~ s/\/\//\//g;
+    $ref =~ s/\/\//\//g;
+    $ref =~ s/\/\//\//g;
+    while ($ref =~ /\/\.\./) {
+        if ($ref=~/([^\/]+\/\.\.\/)/) {
+            $ref =~ s/$1//;
+        } else {
+            return "";
+        }
+    }
+    $ref =~ s/\/\//\//g;
+    $ref =~ s/\/\//\//g;
+    return $ref;
+}
+
+#f append_to_references
+sub append_to_references {
+    my ($ref) = @_;
+    my($clean_ref);
+    $clean_ref = clean_path($ref);
+    return if ($clean_ref eq "");
+    return if ($handled{$clean_ref} eq "yes");
+    return if ($handled{$clean_ref} eq "added");
+    #print "Add reference $clean_ref ($ref)\n";
+    $references[++$#references] = $clean_ref;
+    $handled{$clean_ref} = "added";
+}
+
+#f parse_to_html_file
+sub parse_to_html_file {
+    my($source_dir, $INFILE, $OUTFILE) = @_;
+
+    $in_tag = 0;
+    $tag_type = "";
+    $tag_option = "";
+    while (<$INFILE>) {
+        chomp;
+        $original_line = $_;
+        $line = $_;
+        $output_line = "";
+        while ($line=~/^(\s*)(\S+.*)$/) {
+            $output_line .= $1;
+            $rest = $2;
+            #print "$in_tag.$tag_type.$tag_option.$line.$rest.\n";
+            if ($in_tag==1) {
+                # Look out for tag type
+                $rest =~ /^([^ \t>]+)(.*)$/;
+                $tag_type = $1;
+                $tag_option = "";
+                $in_tag = 2;
+                $output_line .= $tag_type;
+                $line = $2;
+                $tag_type = lc($tag_type);
+            } elsif ($in_tag==2) {
+                if ($rest =~ /^(>|\/>)(.*)$/) { # inside tag, after tag type; check next token is '>' or '/>'; if so, close tag
+                    $output_line .= $1;
+                    $line = $2;
+                    $in_tag = 0;
+                } elsif ($rest =~ /^(=)(.*)$/) { # inside tag, after tag type; check next token is '='; if so, enter mode 3
+                    $output_line .= $1;
+                    $line = $2;
+                    $in_tag = 3;
+                } else { # inside tag after tag type; next token is not '>', '/>', '='; assume it is a tag option, and record that
+                    $rest =~ /^([^= \t>]+)(.*)$/;
+                    $tag_option = $1;
+                    $in_tag = 2;
+                    $output_line .= $1;
+                    $line = $2;
+                    $tag_option = lc($tag_option);
+                }
+            } elsif ($in_tag==3) {
+                if ($rest =~ /^([^= \t>]+)(.*)$/) {
+                    $ref = $1;
+                    $rest = $2;
+                    $quoted = 0;
+                    $label = "";
+                    if ($ref=~/^\"(.*)\"$/) {
+                        $ref = $1;
+                        $quoted=1;
+                    }
+                    if ($ref =~ /(.*)(\x23.*)$/) {
+                        $ref = $1;
+                        $label=$2;
+                    }
+                    $oref = $ref;
+                    # Look out for 'a href=', 'img src=',
+                    # Replace href's with .html versions of .php, and add them to the list of referenced html files; only do this if local to the site.
+                    if ( (($tag_type eq "a") && ($tag_option eq "href")) ||
+                         (($tag_type eq "body") && ($tag_option eq "background")) ||
+                         (($tag_type eq "frame") && ($tag_option eq "src")) ) {
+                        if ($ref=~/:/) {
+                        } elsif ($ref=~/^(.*)\.php$/) {
+                            $ref = "$1.html";
+                            append_to_references( "$source_dir/$oref" );
+                        } elsif ($ref=~/^(.*)\.html$/) {
+                            $ref = "$1.html";
+                            append_to_references( "$source_dir/$oref" );
+                        } elsif ($ref=~/^(.*)\.htm$/) {
+                            $ref = "$1.htm";
+                            append_to_references( "$source_dir/$oref" );
+                        } elsif ($ref=~/^(.*\.[^\/]*)$/) {
+                            $ref = "$1";
+                            append_to_references( "$source_dir/$oref" );
+                        } elsif ( ($ref=~/\/[^.]*$/) ||
+                                  ($ref=~/[^.]*$/) ) {
+                            $ref .= "/" unless ($ref=~/\/$/);
+                            if (-f "$source_dir/${ref}index.php") {
+                                $ref .= "index.html";
+                                append_to_references( "$source_dir/$oref/index.php" );
+                            } elsif (-f "$source_dir/${ref}index.html") {
+                                $ref .= "index.html";
+                                append_to_references( "$source_dir/$oref/index.html" );
+                            } else {
+                                $ref .= "index.htm";
+                                append_to_references( "$source_dir/$oref/index.htm" );
+                            }
+                        };
+                        #print "A href $source_dir $ref ($oref)\n";
+                    }
+                    # Look out for 'a href=', 'img src=',
+                    if (($tag_type eq "img") && ($tag_option eq "src")) {
+                        #print "Img src $source_dir/$ref\n";
+                        append_to_references( "$source_dir/$ref" );
+                    }
+                    $tag_option = "";
+                    $ref="$ref$label";
+                    $ref = "\"$ref\"" if ($quoted);
+                    $output_line .= "$ref";
+                    $line = $rest;
+                } else {
+                    $line = $rest;
+                }
+                $in_tag = 2;
+            } else {
+                # Find first '<', if any;
+                if ($rest =~ /^([^<]*)<(.*)$/) {
+                    $output_line .= "$1<";
+                    $line = $2;
+                    $in_tag = 1;
+                } else {
+                    $output_line .= $rest;
+                    $line = "";
+                }
+            }
+        }
+        print $OUTFILE "$output_line\n";
+    }
+}
+
+#f compile_php_file
+sub compile_php_file {
+    my ($source_dir, $source, $destination) = @_;
+
+    print "Compile PHP file '$source' to '$destination'\n";
+
+    die "Did not expect file $destination to exist" if ( -f "$destination");
+    die "File $source should exist" if ( ! -f "$source");
+
+    open FILE, "/usr/bin/php -f $source |";
+    die "Failed to open $destination\n" unless (open OUTFILE, ">$destination");
+    parse_to_html_file( $source_dir, FILE, OUTFILE );
+    close FILE;
+    close OUTFILE;
+}
+
+#f copy_html_file
+sub copy_html_file {
+    my ($source_dir, $source, $destination) = @_;
+
+    print "Copy HTML file '$source' to '$destination'\n";
+
+    die "Did not expect file $destination to exist" if ( -f "$destination");
+    die "File $source should exist" if ( ! -f "$source");
+
+    open FILE, "$source";
+    die "Failed to open $destination\n" unless (open OUTFILE, ">$destination");
+    parse_to_html_file( $source_dir, FILE, OUTFILE );
+    close FILE;
+    close OUTFILE;
+}
+
+#f ensure_directory
+sub ensure_directory {
+    # $ref should be a file within the directory tree specified by $src_dir
+    # So if $ref were a directory, its parent should also be part of the tree specified by $src_dir, or be $src_dir itself
+    # Check that, then remove that portion from $ref
+    my ($src_dir, $dst_dir, $ref) = @_;
+    #print "Want to make dir $src_dir : $dst_dir : $ref\n";
+    $ref = clean_path("$ref");
+    $src_dir = clean_path("$src_dir");
+    $srcdir_length = length($src_dir);
+    $srcdir_length-- if ($src_dir =~/\/$/);
+    #print "Now dir $src_dir : $dst_dir : $ref\n";
+    #print ":".substr($ref,0,$srcdir_length).":".substr($src_dir,0,$srcdir_length).":\n";
+    return ("", "") unless (substr($ref,0,$srcdir_length) eq substr($src_dir,0,$srcdir_length));
+    $ref = substr($ref, $srcdir_length );
+    #print "And now $src_dir : $dst_dir : $ref\n";
+    return ("","") unless ($ref =~ /([^\/]+)$/);
+    $file = $1;
+    $dir = substr($ref,0,-length($file));
+    $dir =~ s/\/$//;
+    $dir =~ s/^\///;
+    print "Make dir $dir and $file\n";
+    system("/bin/mkdir -p $dst_dir/$dir");
+#    $dir = "." if ($dir eq "");
+    return ($dir, $file );
+}
+
+#a main
+$syntax = "Syntax: make_web <source_tree> <destination_tree>\n\tThe source must have an index.php file, and destination directory must not exist";
+die $syntax unless ($#ARGV>=1);
+$source_dir = $ARGV[0];
+$dest_dir = $ARGV[1];
+die $syntax if ( !-f "$source_dir/index.php" );
+die $syntax if ( -d "$dest_dir" );
+
+append_to_references( "$source_dir/index.php" );
+$i = 0;
+while ($i<=$#references) {
+    $ref = $references[$i];
+    if ($handled{$ref} eq "yes" ) {
+    } else {
+        $handled{$ref} = "yes";
+        #print "Handle ref $ref\n";
+        ($dir, $file) = ensure_directory( $source_dir, $dest_dir, $ref );
+        $adir = "$dir/";
+        $adir = "" if ($dir eq "");
+        #print "Dir '$dir' file '$file'\n";
+        next if ($file eq "" );
+        if ($file =~ /\.php$/) {
+            $out = $file;
+            $out =~ s/\.php/\.html/;
+            compile_php_file( "$source_dir/$dir", "$source_dir/${adir}$file", "$dest_dir/${adir}$out" );
+        } elsif ($file =~ /\.html$/) {
+            copy_html_file( "$source_dir/$dir", "$source_dir/${adir}$file", "$dest_dir/${adir}$file" );
+        } else {
+            die "Bad link to file $source_dir/${adir}$file\n" unless (-f "$source_dir/${adir}$file");
+            die unless (system("/bin/cp $source_dir/${adir}$file $dest_dir/${adir}$file")==0);
+        }
+    }
+    $i++;
+}
+print"\n\nReferences handled:\n";
+$i = 0;
+while ($i<=$#references) {
+    $ref = $references[$i];
+    if ($handled{$ref} eq "printed" ) {
+    } else {
+        $handled{$ref} = "printed";
+        print "   $ref\n";
+    }
+    $i++;
+}
+
+system("/bin/chmod -R ugo+rx $dest_dir");
+
+#a Editor preferences and notes
+# Local Variables: ***
+# mode: perl ***
+# outline-regexp: "#a\\\|[\t ]*#[b-z][\t ]" ***
+# End: ***
