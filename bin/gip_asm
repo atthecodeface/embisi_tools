@@ -38,8 +38,7 @@ $alu_ops{"dvb"} =15;
 $alu_ops{"rsc"} =18;
 
 #v cnd_re, cnd_ops
-$cnd_re = "(cmpeq|cmpne|cmpgt|cmpge|cmplt|cmple|cmphi|cmphs|cmplo|cmpls|cmpmi|cmppl|cmpvs|cmpvc|cmpanyclr|cmpallset|cmpseq|cmpsne|cmpsgt|cmpsge|cmpslt|cmpsle|cmpshi|cmpshs|cmpslo|cmpsls|cmpsmi|cmpspl|cmpsvs|cmpsvc|cmpsps|cmpspc)";
-$cnd_ops{"cmpeq"}=0;
+$cnd_re = "(cmpeq|cmpne|cmpgt|cmpge|cmplt|cmple|cmphi|cmphs|cmplo|cmpls|cmpspc|cmpspc|tstanyset|tstanyclr|tstallset|tstallclr|cmpseq|cmpsne|cmpsgt|cmpsge|cmpslt|cmpsle|cmpshi|cmpshs|cmpslo|cmpsls|cmpsmi|cmpspl|cmpsvs|cmpsvc|cmpsps|cmpspc)";
 $cnd_ops{"cmpeq"}=0;
 $cnd_ops{"cmpne"}=1;
 $cnd_ops{"cmpgt"}=2;
@@ -50,12 +49,12 @@ $cnd_ops{"cmphi"}=6;
 $cnd_ops{"cmphs"}=7;
 $cnd_ops{"cmplo"}=8;
 $cnd_ops{"cmpls"}=9;
-$cnd_ops{"cmpmi"}=10;
-$cnd_ops{"cmppl"}=11;
-$cnd_ops{"cmpvs"}=12;
-$cnd_ops{"cmpvc"}=13;
-$cnd_ops{"cmpanyclr"}=14;
-$cnd_ops{"cmpallset"}=15;
+$cnd_ops{"cmpsps"}=10;
+$cnd_ops{"cmpsoc"}=11;
+$cnd_ops{"tstallset"}=12;
+$cnd_ops{"tstallclr"}=13;
+$cnd_ops{"tstanyset"}=14;
+$cnd_ops{"tstanyclr"}=15;
 $cnd_ops{"cmpseq"}=16;
 $cnd_ops{"cmpsne"}=17;
 $cnd_ops{"cmpsgt"}=18;
@@ -113,8 +112,10 @@ $op_regexps[10] = "^\\s*(ldr|str)(|b|h)\\s+$rd_re\\s*,\\s*$no_index_re\\s*\$";
 $op_fns[    10] = assemble_mem_noindex;
 $op_regexps[11] = "^\\s*extrd\\s+$imm_re\\s*\$";
 $op_fns[    11] = assemble_extrd;
-$op_regexps[12] = "^\\s*(dcb|dch|dcw)\\s+$imm_re\\s*\$";
-$op_fns[    12] = assemble_dc;
+$op_regexps[12] = "^\\s*extrn\\s+$imm_re\\s*\$";
+$op_fns[    12] = assemble_extrn;
+$op_regexps[13] = "^\\s*(dcb|dch|dcw)\\s+$imm_re\\s*\$";
+$op_fns[    13] = assemble_dc;
 
 #a Support functions
 #f int_from_rd
@@ -295,6 +296,15 @@ sub assemble_extrd {
     $line =~ /$op_regexps[$re_num]/;
     $imm = immediate_value($1);
     output_1( $pass, $address, (12<<12) | (($imm&0xff)<<4) );
+    return $address+2;
+}
+
+#f assemble_extrn
+sub assemble_extrn {
+    my ($pass, $line, $re_num, $address) = @_;
+    $line =~ /$op_regexps[$re_num]/;
+    $imm = immediate_value($1);
+    output_1( $pass, $address, (13<<12) | (($imm&0xf0)<<4) );
     return $address+2;
 }
 
