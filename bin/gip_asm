@@ -1,0 +1,289 @@
+#!/usr/bin/perl
+
+#a Regular expressions
+$alu_re = "(and|or|xor|orn|bic|mov|mvn|add|adc|sub|sbc|rsb|rsc|init|mla|mlb|dva|dvb|xorfirst|xorlast|xorcnt)";
+$alu_ops{"and"} = 0;
+$alu_ops{"or"}  = 1;
+$alu_ops{"xor"} =2;
+$alu_ops{"orn"} =3;
+$alu_ops{"bic"} =4;
+$alu_ops{"mov"} =5;
+$alu_ops{"mvn"} =6;
+$alu_ops{"add"} =7;
+$alu_ops{"sub"} =8;
+$alu_ops{"rsb"} =9;
+$alu_ops{"init"}=10;
+$alu_ops{"mla"} =11;
+$alu_ops{"mlb"} =12;
+$alu_ops{"adc"} =13;
+$alu_ops{"sbc"} =14;
+$alu_ops{"rsc"} =15;
+$alu_ops{"dva"} =16; # here on down not possible without extension
+$alu_ops{"dvb"} =17;
+$alu_ops{"xorcnt"} =18;
+$alu_ops{"xorfirst"} =19;
+$alu_ops{"xorlast"} =20;
+
+$cnd_re = "(cmpeq|cmpne|cmpgt|cmpge|cmplt|cmple|cmphi|cmphs|cmplo|cmpls|cmpmi|cmppl|cmpvs|cmpvc|cmpanyclr|cmpallset|cmpseq|cmpsne|cmpsgt|cmpsge|cmpslt|cmpsle|cmpshi|cmpshs|cmpslo|cmpsls|cmpsmi|cmpspl|cmpsvs|cmpsvc|cmpsps|cmpspc)";
+$cnd_ops{"cmpeq"}=0;
+$cnd_ops{"cmpeq"}=0;
+$cnd_ops{"cmpne"}=1;
+$cnd_ops{"cmpgt"}=2;
+$cnd_ops{"cmpge"}=3;
+$cnd_ops{"cmplt"}=4;
+$cnd_ops{"cmple"}=5;
+$cnd_ops{"cmphi"}=6;
+$cnd_ops{"cmphs"}=7;
+$cnd_ops{"cmplo"}=8;
+$cnd_ops{"cmpls"}=9;
+$cnd_ops{"cmpmi"}=10;
+$cnd_ops{"cmppl"}=11;
+$cnd_ops{"cmpvs"}=12;
+$cnd_ops{"cmpvc"}=13;
+$cnd_ops{"cmpanyclr"}=14;
+$cnd_ops{"cmpallset"}=15;
+$cnd_ops{"cmpseq"}=16;
+$cnd_ops{"cmpsne"}=17;
+$cnd_ops{"cmpsgt"}=18;
+$cnd_ops{"cmpsge"}=19;
+$cnd_ops{"cmpslt"}=20;
+$cnd_ops{"cmpsle"}=21;
+$cnd_ops{"cmpshi"}=22;
+$cnd_ops{"cmpshs"}=23;
+$cnd_ops{"cmpslo"}=24;
+$cnd_ops{"cmpsls"}=25;
+$cnd_ops{"cmpsmi"}=26;
+$cnd_ops{"cmpspl"}=27;
+$cnd_ops{"cmpsvs"}=28;
+$cnd_ops{"cmpsvc"}=29;
+$cnd_ops{"cmpsps"}=30;
+$cnd_ops{"cmpspc"}=31;
+
+$shf_re = "(lsl|lsr|asr|ror)";
+$shf_ops{"lsl"} = 0;
+$shf_ops{"lsr"} = 1;
+$shf_ops{"asr"} = 2;
+$shf_ops{"ror"} = 3;
+
+$rd_re = "((r([0-9]+))|pc)";
+$rn_re = "((r([0-9]+))|acc)";
+$rm_re = "((r([0-9]+))|acc)";
+$imm_re = "#([0-9]+)";
+
+$op_regexps[ 0] = "$alu_re\\s+$rd_re\\s*,\\s*$rm_re";
+$op_fns[     0] = assemble_alu_reg;
+$op_regexps[ 1] = "$alu_re\\s+$rd_re\\s*,\\s*$imm_re";
+$op_fns[     1] = assemble_alu_imm;
+$op_regexps[ 2] = "$cnd_re\\s+$rn_re\\s*,\\s*$rn_re";
+$op_fns[     2] = assemble_cnd_reg;
+$op_regexps[ 3] = "$cnd_re\\s+$rn_re\\s*,\\s*$imm_re";
+$op_fns[     3] = assemble_cnd_imm;
+$op_regexps[ 4] = "$shf_re\\s+$rn_re\\s*,\\s*$rm_re";
+$op_fns[     4] = assemble_shf_reg;
+$op_regexps[ 5] = "$shf_re\\s+$rn_re\\s*,\\s*$imm_re";
+$op_fns[     5] = assemble_shf_imm;
+$op_regexps[ 6] = "extimm\\s+$imm_re";
+$op_fns[     6] = assemble_extimm;
+
+#a Support functions
+#f int_from_rd
+sub int_from_rd {
+    my ($rd) = @_;
+    return 15 if ($rd =~ /pc/);
+    if ($rd =~ /r([0-9]+)/) {
+        return $1;
+    }
+}
+
+#f int_from_rm
+sub int_from_rm {
+    my ($rm) = @_;
+    return 15 if ($rm =~ /acc/);
+    if ($rm =~ /r([0-9]+)/) {
+        return $1;
+    }
+}
+
+#f int_from_rn
+sub int_from_rn {
+    my ($rn) = @_;
+    return 15 if ($rn =~ /acc/);
+    if ($rn =~ /r([0-9]+)/) {
+        return $1;
+    }
+}
+
+#a Assembly functions
+#f assemble_alu_reg
+sub assemble_alu_reg {
+    my ($line, $re_num, $address) = @_;
+    $line =~ /$op_regexps[$re_num]/;
+    $alu_op = $1;
+    $rd = $2;
+    $rm = $5;
+    $value = (0<<12) |
+             (($alu_ops[$alu_op])<<8) |
+             (int_from_rd($rd)<<4) |
+             (int_from_rm($rm)<<0);
+    output_1( $address, $value );
+    return $address+2;
+}
+
+#f assemble_alu_imm
+sub assemble_alu_imm {
+    my ($line, $re_num) = @_;
+    $line =~ /$op_regexps[$re_num]/;
+    $alu_op = $1;
+    $rd = $2;
+    $imm = $5;
+    $value = (1<<12) |
+             (($alu_ops[$alu_op])<<8) |
+             (int_from_rd($rd)<<4) |
+             ($imm<<0);
+    output_1( $address, $value );
+    return $address+2;
+}
+
+#f assemble_cnd_reg
+sub assemble_cnd_reg {
+    my ($line, $re_num, $address) = @_;
+    $line =~ /$op_regexps[$re_num]/;
+    $cnd_op = $1;
+    $rn = $2;
+    $rm = $5;
+    $value = (2<<12) |
+             (($cnd_ops[$cnd_op])<<8) |
+             (int_from_rn($rn)<<4) |
+             (int_from_rm($rm)<<0);
+    output_1( $address, $value );
+    return $address+2;
+}
+
+#f assemble_cnd_imm
+sub assemble_cnd_imm {
+    my ($line, $re_num, $address) = @_;
+    $line =~ /$op_regexps[$re_num]/;
+    $cnd_op = $1;
+    $rn = $2;
+    $imm = $5;
+    $value = (3<<12) |
+             (($cnd_ops[$cnd_op])<<8) |
+             (int_from_rn($rn)<<4) |
+             ($imm<<0);
+    output_1( $address, $value );
+    return $address+2;
+}
+
+#f assemble_shf_reg
+sub assemble_shf_reg {
+    my ($line, $re_num, $address) = @_;
+    $line =~ /$op_regexps[$re_num]/;
+    $shf_op = $1;
+    $rn = $2;
+    $rm = $5;
+    $value = (4<<12) |
+             (($shf_ops[$shf_op])<<10) |
+             (int_from_rn($rn)<<4) |
+             (int_from_rm($rm)<<0);
+    output_1( $address, $value );
+    return $address+2;
+}
+
+#f assemble_shf_imm
+sub assemble_shf_imm {
+    my ($line, $re_num, $address) = @_;
+    $line =~ /$op_regexps[$re_num]/;
+    $shf_op = $1;
+    $rn = $2;
+    $imm = $5;
+    $value = (4<<12) |
+             (($shf_ops[$shf_op])<<10) |
+             (1<<9) |
+             ((($imm>>4)&1)<<8) |
+             (int_from_rn($rn)<<4) |
+             (($imm&0xf)<<0);
+    output_1( $address, $value );
+    return $address+2;
+}
+
+#f assemble_extimm
+sub assemble_extimm {
+    my ($line, $re_num, $address) = @_;
+    $line =~ /$op_regexps[$re_num]/;
+    $imm = $1;
+    $high = ($imm>>18)&0x3fff;
+    $low  = ($imm>>4)&0x3fff;
+    if ( (($high==0x3fff) && ($low&0x2000)) ||
+         (($high==0) && !($low&0x2000)) ) {
+        output_1( $address, (8<<12) | $low );
+        return $address+2;
+    }
+    output_2( $address, (8<<12) | $high, (8<<12) | $low );
+    return $address+4;
+}
+
+#a Main assembly functions
+#f assemble_line
+sub assemble_line {
+    my ($line, $address) = @_;
+
+    $line = lc($line);
+    $i=0;
+    $value_valid = 0;
+    $value = 0;
+    $extra_text = "";
+    $next_address = $address+2;
+    foreach $re (@op_regexps) {
+        if ($line =~ /$re/) {
+            if ($op_fns[$i]) {
+                return $op_fns[$i]( $line, $i, $address );
+            }
+        }
+        $i++;
+    }
+    return -1;
+}
+
+#a Display functions
+#f output_1 - output 1 16-bit word
+sub output_1 {
+    my ($address,$value) = @_;
+    if ( ($current_address == ($address-2)) &&
+         (($address&3)==2) ) {
+        printf "%08x: %08x %s\n", $current_address, $current_data | ($value<<16), $extra_text;
+        $current_address = -1;
+    } else {
+        $current_data = $value;
+        $current_address = $address;
+    }
+    return;
+}
+
+#f output_2 - output 2 16-bit words
+sub output_2 {
+    my ($address,$value_1, $value_2) = @_;
+    output_1( $address, $value_1 );
+    output_1( $address+2, $value_2 );
+}
+
+#f output_flush
+sub output_flush {
+    return if ($current_address<0);
+    if (($current_address&3)==0) {
+        printf "%08x: %08x \n", $current_address, $current_data;
+    } else {
+        printf "%08x: %08x \n", $current_address&~3, $current_data<<16;
+    }
+    return;
+}
+
+#a Test/main routine
+$current_address = -1;
+$current_data = 0;
+$address = assemble_line( "AND r0, r2", $address);
+$address = assemble_line( "extimm #6553600", $address);
+$address = assemble_line( "mov r1, #3", $address);
+$address = assemble_line( "lsl r1, #3", $address);
+$address = assemble_line( "lsr r1, r2", $address);
+$address = assemble_line( "cmpeq r2, r2", $address);
+output_flush();
