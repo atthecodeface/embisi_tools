@@ -1,6 +1,14 @@
 #!/usr/bin/perl
 
 #a Regular expressions
+#v rd/rn/rm/imm/label_re
+$rd_re = "((r([0-9]+))|pc)";
+$rn_re = "((r([0-9]+))|acc)";
+$rm_re = "((r([0-9]+))|acc)";
+$imm_re = "#([0-9]+)";
+$label_re = "([a-zA-z][a-zA-Z_0-9]*)";
+
+#v alu_re, alu_ops
 $alu_re = "(and|or|xor|orn|bic|mov|mvn|add|adc|sub|sbc|rsb|rsc|init|mla|mlb|dva|dvb|xorfirst|xorlast|xorcnt)";
 $alu_ops{"and"} = 0;
 $alu_ops{"or"}  = 1;
@@ -24,6 +32,7 @@ $alu_ops{"xorcnt"} =18;
 $alu_ops{"xorfirst"} =19;
 $alu_ops{"xorlast"} =20;
 
+#v cnd_re, cnd_ops
 $cnd_re = "(cmpeq|cmpne|cmpgt|cmpge|cmplt|cmple|cmphi|cmphs|cmplo|cmpls|cmpmi|cmppl|cmpvs|cmpvc|cmpanyclr|cmpallset|cmpseq|cmpsne|cmpsgt|cmpsge|cmpslt|cmpsle|cmpshi|cmpshs|cmpslo|cmpsls|cmpsmi|cmpspl|cmpsvs|cmpsvc|cmpsps|cmpspc)";
 $cnd_ops{"cmpeq"}=0;
 $cnd_ops{"cmpeq"}=0;
@@ -59,31 +68,44 @@ $cnd_ops{"cmpsvc"}=29;
 $cnd_ops{"cmpsps"}=30;
 $cnd_ops{"cmpspc"}=31;
 
+#v shf_re, shf_ops
 $shf_re = "(lsl|lsr|asr|ror)";
 $shf_ops{"lsl"} = 0;
 $shf_ops{"lsr"} = 1;
 $shf_ops{"asr"} = 2;
 $shf_ops{"ror"} = 3;
 
-$rd_re = "((r([0-9]+))|pc)";
-$rn_re = "((r([0-9]+))|acc)";
-$rm_re = "((r([0-9]+))|acc)";
-$imm_re = "#([0-9]+)";
+#v branch_re
+$branch_re = "(b|bl)";
 
-$op_regexps[ 0] = "$alu_re\\s+$rd_re\\s*,\\s*$rm_re";
+#v postindex_re, preindex_re, noindex_re
+$str_preindex_re = "\\[\\s*$rn_re\\s*,\\s*#\\s*(-|\\+|\\s*4)\\s*\\]/";
+$str_postindex_re = "\\[\\s*$rn_re\\s*\\]\\s*,\\s*#\\s*(-|\\+|\\s*4)";
+$noindex_re = "\\[\\s*$rn_re\\s*\\]";
+
+#v op_regexps, op_fns
+$op_regexps[ 0] = "^\\s*$alu_re\\s+$rd_re\\s*,\\s*$rm_re\\s*\$";
 $op_fns[     0] = assemble_alu_reg;
-$op_regexps[ 1] = "$alu_re\\s+$rd_re\\s*,\\s*$imm_re";
+$op_regexps[ 1] = "^\\s*$alu_re\\s+$rd_re\\s*,\\s*$imm_re\\s*\$";
 $op_fns[     1] = assemble_alu_imm;
-$op_regexps[ 2] = "$cnd_re\\s+$rn_re\\s*,\\s*$rn_re";
+$op_regexps[ 2] = "^\\s*$cnd_re\\s+$rn_re\\s*,\\s*$rn_re\\s*\$";
 $op_fns[     2] = assemble_cnd_reg;
-$op_regexps[ 3] = "$cnd_re\\s+$rn_re\\s*,\\s*$imm_re";
+$op_regexps[ 3] = "^\\s*$cnd_re\\s+$rn_re\\s*,\\s*$imm_re\\s*\$";
 $op_fns[     3] = assemble_cnd_imm;
-$op_regexps[ 4] = "$shf_re\\s+$rn_re\\s*,\\s*$rm_re";
+$op_regexps[ 4] = "^\\s*$shf_re\\s+$rn_re\\s*,\\s*$rm_re\\s*\$";
 $op_fns[     4] = assemble_shf_reg;
-$op_regexps[ 5] = "$shf_re\\s+$rn_re\\s*,\\s*$imm_re";
+$op_regexps[ 5] = "^\\s*$shf_re\\s+$rn_re\\s*,\\s*$imm_re\\s*\$";
 $op_fns[     5] = assemble_shf_imm;
-$op_regexps[ 6] = "extimm\\s+$imm_re";
+$op_regexps[ 6] = "^\\s*extimm\\s+$imm_re\\s*\$";
 $op_fns[     6] = assemble_extimm;
+$op_regexps[ 7] = "^\\s*$branch_re\\s+$label_re\\s*\$";
+$op_fns[     7] = assemble_branch;
+$op_regexps[ 8] = "^\\s*str\\s+$rd_re\\s*,\\s*$str_preindex_re\\s*\$";
+$op_fns[     8] = assemble_str_preindex;
+$op_regexps[ 9] = "str\\s+$rd_re\\s*,\\s*$str_postindex_re\\s*";
+$op_fns[     9] = assemble_str_postindex;
+$op_regexps[10] = "^\\s*(ldr|str)(|b|h)\\s+$rd_re\\s*,\\s*$no_index_re\\s*\$";
+$op_fns[    10] = assemble_mem_noindex;
 
 #a Support functions
 #f int_from_rd
@@ -113,121 +135,256 @@ sub int_from_rn {
     }
 }
 
+#a Label functions
+#f define_label
+sub define_label {
+    my ($pass, $label, $address) = @_;
+
+    $label_address{"$label"} = "($pass $address)";
+    print "Define label $label at address $address\n";
+}
+
+#f get_label
+sub get_label {
+    my ($label) = @_;
+    if ($label_address{"$label"} =~ /\((\S+) (\S+)\)/) {
+        return (1, $2);
+    }
+    return (0, 0);
+}
+
+#a Error functions
+#f error
+sub error {
+    my ( $line, $error ) = @_;
+    print "Error: $error\n";
+    $error_count++;
+}
+
 #a Assembly functions
 #f assemble_alu_reg
 sub assemble_alu_reg {
-    my ($line, $re_num, $address) = @_;
+    my ($pass, $line, $re_num, $address) = @_;
     $line =~ /$op_regexps[$re_num]/;
     $alu_op = $1;
     $rd = $2;
     $rm = $5;
     $value = (0<<12) |
-             (($alu_ops[$alu_op])<<8) |
+             (($alu_ops{$alu_op})<<8) |
              (int_from_rd($rd)<<4) |
              (int_from_rm($rm)<<0);
-    output_1( $address, $value );
+    output_1( $pass, $address, $value );
     return $address+2;
 }
 
 #f assemble_alu_imm
 sub assemble_alu_imm {
-    my ($line, $re_num) = @_;
+    my ($pass, $line, $re_num, $address) = @_;
     $line =~ /$op_regexps[$re_num]/;
     $alu_op = $1;
     $rd = $2;
     $imm = $5;
     $value = (1<<12) |
-             (($alu_ops[$alu_op])<<8) |
+             (($alu_ops{$alu_op})<<8) |
              (int_from_rd($rd)<<4) |
              ($imm<<0);
-    output_1( $address, $value );
+    output_1( $pass, $address, $value );
     return $address+2;
 }
 
 #f assemble_cnd_reg
 sub assemble_cnd_reg {
-    my ($line, $re_num, $address) = @_;
+    my ($pass, $line, $re_num, $address) = @_;
     $line =~ /$op_regexps[$re_num]/;
     $cnd_op = $1;
     $rn = $2;
     $rm = $5;
     $value = (2<<12) |
-             (($cnd_ops[$cnd_op])<<8) |
+             (($cnd_ops{$cnd_op})<<8) |
              (int_from_rn($rn)<<4) |
              (int_from_rm($rm)<<0);
-    output_1( $address, $value );
+    output_1( $pass, $address, $value );
     return $address+2;
 }
 
 #f assemble_cnd_imm
 sub assemble_cnd_imm {
-    my ($line, $re_num, $address) = @_;
+    my ($pass, $line, $re_num, $address) = @_;
     $line =~ /$op_regexps[$re_num]/;
     $cnd_op = $1;
     $rn = $2;
     $imm = $5;
     $value = (3<<12) |
-             (($cnd_ops[$cnd_op])<<8) |
+             (($cnd_ops{$cnd_op})<<8) |
              (int_from_rn($rn)<<4) |
              ($imm<<0);
-    output_1( $address, $value );
+    output_1( $pass, $address, $value );
     return $address+2;
 }
 
 #f assemble_shf_reg
 sub assemble_shf_reg {
-    my ($line, $re_num, $address) = @_;
+    my ($pass, $line, $re_num, $address) = @_;
     $line =~ /$op_regexps[$re_num]/;
     $shf_op = $1;
     $rn = $2;
     $rm = $5;
     $value = (4<<12) |
-             (($shf_ops[$shf_op])<<10) |
+             (($shf_ops{$shf_op})<<10) |
              (int_from_rn($rn)<<4) |
              (int_from_rm($rm)<<0);
-    output_1( $address, $value );
+    output_1( $pass, $address, $value );
     return $address+2;
 }
 
 #f assemble_shf_imm
 sub assemble_shf_imm {
-    my ($line, $re_num, $address) = @_;
+    my ($pass, $line, $re_num, $address) = @_;
     $line =~ /$op_regexps[$re_num]/;
     $shf_op = $1;
     $rn = $2;
     $imm = $5;
     $value = (4<<12) |
-             (($shf_ops[$shf_op])<<10) |
+             (($shf_ops{$shf_op})<<10) |
              (1<<9) |
              ((($imm>>4)&1)<<8) |
              (int_from_rn($rn)<<4) |
              (($imm&0xf)<<0);
-    output_1( $address, $value );
+    output_1( $pass, $address, $value );
     return $address+2;
 }
 
 #f assemble_extimm
 sub assemble_extimm {
-    my ($line, $re_num, $address) = @_;
+    my ($pass, $line, $re_num, $address) = @_;
     $line =~ /$op_regexps[$re_num]/;
     $imm = $1;
     $high = ($imm>>18)&0x3fff;
     $low  = ($imm>>4)&0x3fff;
     if ( (($high==0x3fff) && ($low&0x2000)) ||
          (($high==0) && !($low&0x2000)) ) {
-        output_1( $address, (8<<12) | $low );
+        output_1( $pass, $address, (8<<12) | $low );
         return $address+2;
     }
-    output_2( $address, (8<<12) | $high, (8<<12) | $low );
+    output_2( $pass, $address, (8<<12) | $high, (8<<12) | $low );
     return $address+4;
+}
+
+#f assemble_branch
+# In the first pass, take maximum length, i.e. 3 words
+# In second pass take shortest lengt posssible
+sub assemble_branch {
+    my ($pass, $line, $re_num, $address) = @_;
+    if ($pass==0) {
+        return $address+6;
+    }
+    $line =~ /$op_regexps[$re_num]/;
+    $type = $1;
+    $label = $2;
+    $link = 0;
+    $link = 1 if ($type =~ /l/);
+    ($target_valid, $target) = get_label( $label );
+    if (!$target_valid) {
+        error( 0, "Unknown label $label" );
+        return $address+6;
+    }
+    $offset = ($target-$address)>>1;
+    $offset |= 0x80000000 if ($offset&0x40000000);
+    if ($pass==1) {
+        if ( (($offset&0xfffffc00)==0) ||
+             (($offset&0xfffffc00)==0xfffffc00) ) {
+            $extends = 0;
+        } elsif ( ((($offset-1)&0xfffc0000)==0) ||
+                    ((($offset-1)&0xfffc0000)==0xfffc0000) ) {
+            $extends = 1;
+        } else {
+            $extends = 2;
+        }
+    } else {
+        $extends = $extends[$line_num];
+    }
+    $offset -= $extends;
+    $inst_offset = $offset & 0x7ff;
+    $low  = (($offset^$inst_offset) >> 4)  & 0x3fff;
+    $high = (($offset^$inst_offset) >> 18) & 0x3fff;
+    if ($extends==2) {
+        output_2( $pass, $address, (8<<12) | $high, (8<<12) | $low );
+        output_1( $pass, $address, (6<<12) | ($link<<11) | ($inst_offset<<0) );
+        return $address+6;
+    }
+    if ($extends==1) {
+        output_1( $pass, $address, (8<<12) | $low );
+        output_1( $pass, $address, (6<<12) | ($link<<11) | ($inst_offset<<0) );
+        return $address+4;
+    }
+    output_1( $pass, $address, (6<<12) | ($link<<11) | ($inst_offset<<0) );
+    return $address+2;
+}
+
+#f assemble_str_preindex
+sub assemble_str_preindex {
+    my ($pass, $line, $re_num, $address) = @_;
+    $line =~ /$op_regexps[$re_num]/;
+    print "NOT WRITTEN: STR PREINDEX: $1 $2 $3 $4 $5 $6 $7 $8 $9\n";
+    $rm = $1;
+    $rn = $4;
+    $offset = $7;
+    $subclass = 6;
+    $subclass = 7 if ($offset =~ /-/);
+    $value = (5<<12) |
+             ($subclass<<9) |
+             ($1<<8) |
+             (int_from_rn($rn)<<4) |
+             (int_from_rm($rm)<<0);
+    output_1( $pass, $address, $value );
+    return $address+2;
+}
+
+#f assemble_str_postindex
+sub assemble_str_postindex {
+    my ($pass, $line, $re_num, $address) = @_;
+    $line =~ /$op_regexps[$re_num]/;
+#    print "$1 $2 $3 $4 $5 $6 $7 $8 $9\n";
+    $rm = $1;
+    $rn = $4;
+    $offset = $7;
+    $subclass = 6;
+    $subclass = 7 if ($offset =~ /-/);
+    $value = (5<<12) |
+             ($subclass<<9) |
+             ($1<<8) |
+             (int_from_rn($rn)<<4) |
+             (int_from_rm($rm)<<0);
+    output_1( $pass, $address, $value );
+    return $address+2;
+}
+
+#f assemble_ldr_postindex
+sub assemble_ldr_postindex {
+    my ($pass, $line, $re_num, $address) = @_;
+    $line =~ /$op_regexps[$re_num]/;
+    print "$1 $2 $3 $4 $5 $6 $7 $8 $9\n";
+    $rm = $1;
+    $rn = $4;
+    $offset = $7;
+    $subclass = 6;
+    $subclass = 7 if ($offset =~ /-/);
+    $value = (5<<12) |
+             ($subclass<<9) |
+             ($1<<8) |
+             (int_from_rn($rn)<<4) |
+             (int_from_rm($rm)<<0);
+    output_1( $pass, $address, $value );
+    return $address+2;
 }
 
 #a Main assembly functions
 #f assemble_line
 sub assemble_line {
-    my ($line, $address) = @_;
+    my ($pass, $line, $address) = @_;
 
     $line = lc($line);
+    return $address if ($line =~ /^\s*$/);
     $i=0;
     $value_valid = 0;
     $value = 0;
@@ -236,22 +393,34 @@ sub assemble_line {
     foreach $re (@op_regexps) {
         if ($line =~ /$re/) {
             if ($op_fns[$i]) {
-                return $op_fns[$i]( $line, $i, $address );
+                return $op_fns[$i]( $pass, $line, $i, $address );
             }
         }
         $i++;
     }
-    return -1;
+    error( 0, "Syntax error in assembler '$line'" );
+    return $address;
 }
 
 #a Display functions
+#f output_init
+sub output_init {
+    my ( $pass, $dest_file ) = @_;
+    $current_address = -1;
+    $pending_comment = "";
+    open DEST, ">$dest_file" if ($pass==2);
+}
+
 #f output_1 - output 1 16-bit word
 sub output_1 {
-    my ($address,$value) = @_;
+    my ( $pass, $address, $value ) = @_;
+    return if ($pass<2);
+
     if ( ($current_address == ($address-2)) &&
          (($address&3)==2) ) {
-        printf "%08x: %08x %s\n", $current_address, $current_data | ($value<<16), $extra_text;
+        printf DEST "%08x: %08x  %s\n", $current_address, $current_data | ($value<<16), $pending_comment;
         $current_address = -1;
+        $pending_comment = "";
     } else {
         $current_data = $value;
         $current_address = $address;
@@ -261,29 +430,89 @@ sub output_1 {
 
 #f output_2 - output 2 16-bit words
 sub output_2 {
-    my ($address,$value_1, $value_2) = @_;
-    output_1( $address, $value_1 );
-    output_1( $address+2, $value_2 );
+    my ( $pass, $address, $value_1, $value_2 ) = @_;
+    return if ($pass<2);
+    output_1( $pass, $address, $value_1 );
+    output_1( $pass, $address+2, $value_2 );
+}
+
+#f output_comment
+sub output_comment {
+    my ( $pass, $comment ) = @_;
+    return if ($pass<2);
+    if ($current_address==-1) {
+        print DEST "                    $pending_comment\n" if ($pending_comment ne "");
+        print DEST "                    $comment\n";
+        $pending_comment = "";
+    } else {
+        if ($pending_comment ne "") {
+            $pending_comment .= "\n                    $comment";
+        } else {
+            $pending_comment = $comment;
+        }
+    }
 }
 
 #f output_flush
 sub output_flush {
-    return if ($current_address<0);
-    if (($current_address&3)==0) {
-        printf "%08x: %08x \n", $current_address, $current_data;
-    } else {
-        printf "%08x: %08x \n", $current_address&~3, $current_data<<16;
+    my ( $pass ) = @_;
+    return if ($pass<2);
+    if ($current_address>=0) {
+        if (($current_address&3)==0) {
+            printf DEST "%08x: %08x \n", $current_address, $current_data;
+        } else {
+            printf DEST "%08x: %08x \n", $current_address&~3, $current_data<<16;
+        }
     }
+    if ($pending_comment) {
+        print DEST "                    $pending_comment\n";
+    }
+    close DEST if ($pass==2);
     return;
 }
 
 #a Test/main routine
-$current_address = -1;
-$current_data = 0;
-$address = assemble_line( "AND r0, r2", $address);
-$address = assemble_line( "extimm #6553600", $address);
-$address = assemble_line( "mov r1, #3", $address);
-$address = assemble_line( "lsl r1, #3", $address);
-$address = assemble_line( "lsr r1, r2", $address);
-$address = assemble_line( "cmpeq r2, r2", $address);
-output_flush();
+$syntax = "Syntax: gip_asm <source> <mif output>\n";
+die $syntax unless ($#ARGV==1);
+$source_file = $ARGV[0];
+$dest_file = $ARGV[1];
+die $syntax if ( !-f "$source_file" );
+
+$pass = 0;
+$error_count = 0;
+while ( ($pass<3) && ($error_count==0) ) {
+    $address = 0;
+    output_init($pass, $dest_file);
+    open SRC, $source_file;
+    while (<SRC>) {
+        $line=$_;
+        if ($line =~ /(.*\S+)\s*$/) {
+            $line = $1;
+        }
+        $comment = "";
+        if ($line =~ /^([^;]*);+\s*(.*)$/) {
+            $line = $1;
+            $comment = $2;
+        }
+        if ($line =~ /^\s*$label_re\s*:(.*)$/) {
+            $label = $1;
+            $line = $2;
+            define_label( $pass, $1, $address );
+        }
+        if ($line =~ /^\s*(.*)$/) {
+            $line = $1;
+        }
+        $address = assemble_line( $pass, $line, $address);
+        output_comment( $pass, $line ) unless ($line =~ /^\s*$/);
+        output_comment( $pass, "  $comment" ) unless ($comment =~ /^\s*$/);
+    }
+    output_flush($pass);
+    close SRC;
+    $pass++;
+}
+
+#a Editor preferences and notes
+# Local Variables: ***
+# mode: perl ***
+# outline-regexp: "#a\\\|[\t ]*#[b-z][\t ]" ***
+# End: ***
