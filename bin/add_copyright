@@ -1,0 +1,153 @@
+#!/usr/bin/perl
+
+#a Functions
+#f print_copyright
+sub print_copyright {
+    my ($outfile, $comment_start, $comment_end, $comment_per_line, $copyright) = @_;
+    print $outfile $comment_start;
+    foreach $line (split(/\n/,$copyright)) {
+        print $outfile "$comment_per_line$line\n";
+    }
+    print $outfile $comment_end;
+}
+
+#f find_copyright
+sub find_copyright {
+    my ($file, $outfile, $comment_start_re, $display) = @_;
+    while (<$file>) {
+        return 1 if (/$comment_start_re/);
+        print $outfile $_ if ($display)
+    }
+    return 0;
+}
+
+#f find_editor_preferences
+sub find_editor_preferences {
+    my ($file, $outfile, $comment_start_re, $display) = @_;
+    while (<$file>) {
+        return 1 if (/$comment_start_re/);
+        print $outfile $_ if ($display)
+    }
+    return 0;
+}
+
+#f skip_to_end_of_comment
+sub skip_to_end_of_comment {
+    my ($file, $comment_end_re, $display) = @_;
+    while (<$file>) {
+        return 1 if (/$comment_end_re/);
+    }
+    return 0;
+}
+
+#f print_to_end_of_file
+sub print_to_end_of_file {
+    my ($file, $outfile, $display) = @_;
+    while (<$file>) {
+        print $outfile $_ if ($display)
+    }
+    return 0;
+}
+
+#f fix_copyright_in_file
+sub fix_copyright_in_file {
+    my ($filename, $style, $copyright) = @_;
+
+    my ($comment_start_re, $comment_end_re, $comment_start, $comment_end, $comment_per_line, $editor_start_re, $editor_block) = split(/@@@/, $style);
+
+    my($has_copyright);
+    die "Did not expect file $filename.new to exist" if ( -f "$filename.new");
+    die "Did not expect file $filename.bkp to exist" if ( -f "$filename.bkp");
+
+    open FILE, "$filename";
+    open OUTFILE, ">$filename.new";
+    $has_copyright = find_copyright( FILE, OUTFILE, $comment_start_re, 0 );
+    close FILE;
+
+    open FILE, "$filename";
+    if ($has_copyright) {
+        find_copyright( FILE, OUTFILE, $comment_start_re, 1 );
+        print_copyright( OUTFILE, $comment_start, $comment_end, $comment_per_line, $copyright);
+        skip_to_end_of_comment( FILE, $comment_end_re );
+    } else {
+        print_copyright( OUTFILE, $comment_start, $comment_end, $comment_per_line, $copyright);
+    }
+    if (find_editor_preferences( FILE, OUTFILE, $editor_start_re, 1 )) {
+        skip_to_end_of_comment( FILE, $comment_end_re );
+    } else {
+        print OUTFILE "\n";
+    }
+    print OUTFILE $editor_block;
+    print_to_end_of_file( FILE, OUTFILE, 1 );
+    close FILE;
+    close OUTFILE;
+    rename "$filename", "$filename.bkp";
+    rename "$filename.new", "$filename";
+    print "----------------------------------------\nDiffing $filename and $filename.bkp:\n";
+    system("/usr/bin/diff $filename $filename.bkp");
+}
+
+#a main
+$copyrights{"gavin"} = "This file copyright Gavin J Stark 2003, 2004
+";
+$copyrights{"embisi"} = "
+This file '<<<FILE>>>' copyright Embisi Inc., 2004
+";
+$copyrights{"gpl"} = "
+This file '<<<FILE>>>' copyright Gavin J Stark 2003, 2004
+
+This program is free software; you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, version 2.0.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even implied warranty of MERCHANTABILITY
+or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+for more details.
+";
+$copyrights{"lgpl"} = "
+This file '<<<FILE>>>' copyright Gavin J Stark 2003, 2004
+
+This is free software; you can redistribute it and/or modify it under
+the terms of the GNU Lesser General Public License as published by the Free Software
+Foundation, version 2.1.
+
+This software is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even implied warranty of MERCHANTABILITY
+or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Lesser General Public License
+for more details.
+";
+$copyrights{"free"} = "
+This file '<<<FILE>>>' copyright Gavin J Stark 2003, 2004
+
+This is free software; you can redistribute it and/or modify it however you wish,
+with no obligations
+
+This software is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even implied warranty of MERCHANTABILITY
+or FITNESS FOR A PARTICULAR PURPOSE.
+";
+$styles{"c"} = "\\\/\\\*a.*Copyright@@@^\s*\\\*\\\/@@@/*a Copyright\n@@@*/\n@@@  @@@\\\/\\\*a.*Editor preferences and notes@@@/*a Editor preferences and notes\nmode: c ***\nc-basic-offset: 4 ***\nc-default-style: (quote ((c-mode . \"k&r\") (c++-mode . \"k&r\"))) ***\noutline-regexp: \"/\\\\\\*a\\\\\\|[\\t ]*\\/\\\\\\*[b-z][\\t ]\" ***\n*/\n\n";
+$styles{"shell"} = "#a Copyright@@@^\s*\$@@@#a Copyright\n@@@\n@@@#  @@@#a Editor preferences and notes@@@#a Editor preferences and notes\n# Local Variables: ***\n# mode: sh ***\n# outline-regexp: \"#[a!]\\\\\\|#[\\t ]*[b-z][\\t ]\" ***\n# End: ***\n\n";
+$styles{"perl"} = "#a Copyright@@@^\s*\$@@@#a Copyright\n@@@\n@@@#  @@@#a Editor preferences and notes@@@#a Editor preferences and notes\n# Local Variables: ***\n# mode: perl ***\n# outline-regexp: \"#[a!]\\\\\\|#[\\t ]*[b-z][\\t ]\" ***\n# End: ***\n\n";
+$styles{"make"} = "#a Copyright@@@^\s*\$@@@#a Copyright\n@@@\n@@@#  @@@#a Editor preferences and notes@@@#a Editor preferences and notes\n# Local Variables: ***\n# mode: Makefile ***\n# outline-regexp: \"#[a!]\\\\\\|#[\\t ]*[b-z][\\t ]\" ***\n# End: ***\n\n";
+$styles{"mif"} = "\\\/\\\/a.*Copyright@@@^\s*\$@@@//a Copyright\n@@@\n@@@//  @@@\\\/\\\/a.*Editor preferences and notes@@@//a Editor preferences and notes\n// Local Variables: ***\n// mode: Makefile ***\n// outline-regexp: \"//[a!]\\\\\\|//[\\t ]*[b-z][\\t ]\" ***\n// End: ***\n\n";
+
+$syntax = "Syntax: add_copyright <copyright name> <file type> <file> [<file>]*\n\t<copyright name> be one of: embisi gavin gpl lgpl free\n\t<file type> may be one of: c shell make perl mif\n";
+die $syntax unless ($#ARGV>=2);
+$copyright = $copyrights{ $ARGV[0] };
+$style = $styles{ $ARGV[1] };
+die $syntax if ($copyright eq "");
+die $syntax if ($style eq "");
+for ($i=2; $i<=$#ARGV; $i++) {
+    $filename = $ARGV[$i];
+    $local_copyright = $copyright;
+    $local_copyright =~ s/<<<FILE>>>/$filename/g;
+    fix_copyright_in_file( $filename, $style, $local_copyright );
+}
+
+#a Editor preferences and notes
+# Local Variables: ***
+# mode: perl ***
+# outline-regexp: "#a\\\|[\t ]*#[b-z][\t ]" ***
+# End: ***
