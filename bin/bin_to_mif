@@ -1,28 +1,76 @@
 #!/usr/bin/perl
+use lib $ENV{"TNBT_CVS_ROOT"}."/common/bin";
+require "lib_getopts.pl";
 
 #a Bin to mif conversion functions
+#f bin_to_mif
+sub bin_to_mif
+{
+    my ($offset_address, $BIN, $MIF) = @_;
+    my ($address_not_reqd) = 0;
+    $#ch=4;
+    while (read($BIN, $bin, 4)) {
+        for ($i=0; $i<4; $i++) {
+            $ch[$i] = ord(substr($bin,$i,1));
+        }
+        if (!$address_not_reqd) {
+            printf $MIF "%08x : %02x%02x%02x%02x\n", $address, $ch[3], $ch[2], $ch[1], $ch[0];
+            $address_not_reqd++;
+        } else {
+            printf $MIF "%02x%02x%02x%02x\n", $ch[3], $ch[2], $ch[1], $ch[0];
+            $address_not_reqd++;
+            $address_not_reqd = 0 if ($address_not_reqd>255);
+        }
+        $address++;
+    }
+}
+
+#f print_usage
+sub print_usage {
+   print "\nUsage: ";
+   print $0," [-a <base address>] [-A] [-h] [-v] [-f <binary filename>] [-o <output filename>]\n";
+   print "Argument Descriptions :\n";
+   print "\t-a               : Set base address for MIF file data\n";
+   print "\t-A               : Append output to output file\n";
+   print "\t-f               : Specify name of binary file to use (else uses STDIN)\n";
+   print "\t-h               : Print this usage message\n";
+   print "\t-o               : Specify name of output file to use (else uses STDOUT)\n";
+   print "\t-v               : Print this usage message\n";
+}
 
 #a Test/main routine
-$syntax = "Syntax: bin_to_mif <binary> <mif output>\n";
-die $syntax unless ($#ARGV==1);
-$bin_file = $ARGV[0];
-$mif_file = $ARGV[1];
-die $syntax if ( !-f "$bin_file" );
+&Getopts ('a:Af:o:hv');
 
-open BIN, "<$bin_file";
-open MIF, ">$mif_file";
+if (($opt_v) || ($opt_h)) {
+   print_usage;
+   exit(1);
+}
+
+if ($opt_f ne "") {
+    print_usage unless open BIN, "<$opt_f";
+    $bin_file = BIN;
+} else {
+    $bin_file = STDIN;
+}
+
+if ($opt_o ne "") {
+    if ($opt_A) {
+        print_usage unless open MIF, ">>$opt_o";
+    } else {
+        print_usage unless open MIF, ">$opt_o";
+    }
+    $mif_file = MIF;
+} else {
+    $mif_file = STDOUT;
+}
+  
 binmode(BIN);
 $address = 0;
-$#ch=4;
-while (read(BIN, $bin, 4)) {
-    for ($i=0; $i<4; $i++) {
-        $ch[$i] = ord(substr($bin,$i,1));
-    }
-    printf MIF "%08x : %02x%02x%02x%02x\n", $address, $ch[3], $ch[2], $ch[1], $ch[0];
-    $address++;
-}
-close BIN;
-close MIF;
+$address = hex($opt_a) if ($opt_a ne "");
+
+bin_to_mif( $address, $bin_file, $mif_file );
+close $bin_file;
+close $mif_file;
 
 #a Editor preferences and notes
 # Local Variables: ***

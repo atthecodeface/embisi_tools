@@ -1,0 +1,115 @@
+#!/usr/bin/perl
+use lib $ENV{"TNBT_CVS_ROOT"}."/common/bin";
+require "lib_getopts.pl";
+
+#a MIF to CDL conversion functions
+#f output_cdl_line
+sub output_cdl_line {
+    my( $CDL, $address, $data ) = @_;
+    printf $CDL "                case %d: { rom_read_data <= 32h%08x; }\n", $address, $data;
+}
+
+#f mif_to_cdl
+sub mif_to_cdl {
+    my ($module_name, $base_address, $address_width, $MIF, $CDL) = @_;
+
+    print $CDL "/*a Created by mif_to_cdl - do not edit\n";
+    print $CDL "*/\n\n";
+
+    print $CDL "/*a Module\n";
+    print $CDL "*/\n\n";
+    print $CDL "/*m $module_name\n";
+    print $CDL "*/\n";
+    print $CDL "module $module_name( clock rom_clock,\n";
+    print $CDL "                     input bit rom_reset,\n";
+    print $CDL "                     input bit rom_read,\n";
+    print $CDL "                     input bit[$address_width] rom_address,\n";
+    print $CDL "                     output bit[32] rom_read_data )\n";
+    print $CDL "{\n";
+    print $CDL "    clocked clock rising rom_clock reset active_high rom_reset bit[32] rom_read_data=0;\n";
+    print $CDL "    rom:\n";
+    print $CDL "    {\n";
+    print $CDL "        rom_read_data <= 0;\n";
+    print $CDL "        if (rom_read)\n";
+    print $CDL "        {\n";
+    print $CDL "            part_switch (rom_address)\n";
+    print $CDL "            {\n";
+
+    $address = 0;
+    while (<$MIF>) {
+        $line = $_;
+        if ($line =~ /^\s*([0-9a-fA-F]+)\s*:(.*)$/) {
+            $address = hex($1);
+            $line = $2;
+        }
+        while (1) {
+            last unless ($line =~ /^\s*([0-9a-fA-F]+)\s*(.*)$/);
+            $data = hex($1);
+            $line = $2;
+            output_cdl_line( $CDL, $address, $data ) if (($address>=$base_address) && ($address-$base_address<(1<<$address_width)));
+            $address++;
+        }
+    }
+
+    print $CDL "            }\n";
+    print $CDL "        }\n";
+    print $CDL "    }\n";
+    print $CDL "}\n";
+}
+
+#f print_usage
+sub print_usage {
+   print "\nUsage: ";
+   print $0,"[-a <address width>] [-A <base address>] [-h] [-v] [-f <mif filename>] [-o <output filename>] [-m module_name]\n";
+   print "Argument Descriptions :\n";
+   print "\t-a               : Set address width of CDL ROM (default 11 bits)\n";
+   print "\t-A               : Set base address of MIF file data to put in output CDL ROM\n";
+   print "\t-f               : Specify name of MIF file to use (else uses STDIN)\n";
+   print "\t-h               : Print this usage message\n";
+   print "\t-m               : Specify the module name (else cdl_rom)\n";
+   print "\t-o               : Specify name of output file to use (else uses STDOUT)\n";
+   print "\t-v               : Print this usage message\n";
+}
+
+#a Test/main routine
+&Getopts ('a:Af:o:hvm:');
+
+$base_address = 0;
+$address_width = 11;
+$address_width = $opt_a if ($opt_a ne "");
+$base_address = $opt_A if ($opt_A ne "");
+$base_address = oct($base_address) if $base_address =~ /^0/;
+$module_name = "cdl_rom";
+$module_name = $opt_m if ($opt_m ne "");
+if (($opt_v) || ($opt_h)) {
+   print_usage;
+   exit(1);
+}
+
+if ($opt_f ne "") {
+    print_usage unless open MIF, "<$opt_f";
+    $mif_file = MIF;
+} else {
+    $mif_file = STDIN;
+}
+
+if ($opt_o ne "") {
+    if ($opt_A) {
+        print_usage unless open CDL, ">>$opt_o";
+    } else {
+        print_usage unless open CDL, ">$opt_o";
+    }
+    $cdl_file = CDL;
+} else {
+    $cdl_file = STDOUT;
+}
+  
+mif_to_cdl( $module_name, $base_address, $address_width, $mif_file, $cdl_file );
+close $mif_file;
+close $cdl_file;
+
+#a Editor preferences and notes
+# Local Variables: ***
+# mode: perl ***
+# outline-regexp: "#a\\\|[\t ]*#[b-z][\t ]" ***
+# End: ***
