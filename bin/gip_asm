@@ -9,28 +9,33 @@ $imm_re = "#([0-9]+)";
 $label_re = "([a-zA-z][a-zA-Z_0-9]*)";
 
 #v alu_re, alu_ops
-$alu_re = "(and|or|xor|orn|bic|mov|mvn|add|adc|sub|sbc|rsb|rsc|init|mla|mlb|dva|dvb|xorfirst|xorlast|xorcnt)";
+$alu_re = "(and|or|xor|orn|bic|mov|mvn|add|adc|sub|sbc|rsb|rsc|init|mla|mlb|dva|dvb|xorf|xorl|andc|bitr|bytr)";
 $alu_ops{"and"} = 0;
 $alu_ops{"or"}  = 1;
-$alu_ops{"xor"} =2;
-$alu_ops{"orn"} =3;
-$alu_ops{"bic"} =4;
-$alu_ops{"mov"} =5;
-$alu_ops{"mvn"} =6;
-$alu_ops{"add"} =7;
-$alu_ops{"sub"} =8;
-$alu_ops{"rsb"} =9;
+$alu_ops{"xor"} = 2;
+$alu_ops{"mov"} = 3;
+$alu_ops{"mvn"} = 4;
+$alu_ops{"add"} = 5;
+$alu_ops{"sub"} = 6;
+$alu_ops{"adc"} = 7;
+$alu_ops{"xorfirst"} = 8;
+$alu_ops{"rsb"} = 9;
+
+$alu_ops{"bic"} = 10;
+$alu_ops{"orn"} = 11;
+$alu_ops{"andc"} =12;
+$alu_ops{"xorl"} =13;
+$alu_ops{"bitr"} =14;
+$alu_ops{"bytr"} =15;
+
 $alu_ops{"init"}=10;
 $alu_ops{"mla"} =11;
 $alu_ops{"mlb"} =12;
-$alu_ops{"adc"} =13;
-$alu_ops{"sbc"} =14;
-$alu_ops{"rsc"} =15;
-$alu_ops{"dva"} =16; # here on down not possible without extension
-$alu_ops{"dvb"} =17;
-$alu_ops{"xorcnt"} =18;
-$alu_ops{"xorfirst"} =19;
-$alu_ops{"xorlast"} =20;
+$alu_ops{"sbc"} =13;
+$alu_ops{"dva"} =14;
+$alu_ops{"dvb"} =15;
+
+$alu_ops{"rsc"} =18;
 
 #v cnd_re, cnd_ops
 $cnd_re = "(cmpeq|cmpne|cmpgt|cmpge|cmplt|cmple|cmphi|cmphs|cmplo|cmpls|cmpmi|cmppl|cmpvs|cmpvc|cmpanyclr|cmpallset|cmpseq|cmpsne|cmpsgt|cmpsge|cmpslt|cmpsle|cmpshi|cmpshs|cmpslo|cmpsls|cmpsmi|cmpspl|cmpsvs|cmpsvc|cmpsps|cmpspc)";
@@ -76,7 +81,7 @@ $shf_ops{"asr"} = 2;
 $shf_ops{"ror"} = 3;
 
 #v branch_re
-$branch_re = "(b|bl)";
+$branch_re = "(b|bd)";
 
 #v postindex_re, preindex_re, noindex_re
 $str_preindex_re = "\\[\\s*$rn_re\\s*,\\s*#\\s*(-|\\+|\\s*4)\\s*\\]/";
@@ -281,14 +286,14 @@ sub assemble_branch {
     $line =~ /$op_regexps[$re_num]/;
     $type = $1;
     $label = $2;
-    $link = 0;
-    $link = 1 if ($type =~ /l/);
+    $delay = 0;
+    $delay = 1 if ($type =~ /d/);
     ($target_valid, $target) = get_label( $label );
     if (!$target_valid) {
         error( 0, "Unknown label $label" );
         return $address+6;
     }
-    $offset = ($target-$address)>>1;
+    $offset = ($target-$address-8)>>1;
     $offset |= 0x80000000 if ($offset&0x40000000);
     if ($pass==1) {
         if ( (($offset&0xfffffc00)==0) ||
@@ -305,19 +310,21 @@ sub assemble_branch {
     }
     $offset -= $extends;
     $inst_offset = $offset & 0x7ff;
+    printf "Branch offset %x %x\n", $offset, $inst_offset;
     $low  = (($offset^$inst_offset) >> 4)  & 0x3fff;
     $high = (($offset^$inst_offset) >> 18) & 0x3fff;
     if ($extends==2) {
         output_2( $pass, $address, (8<<12) | $high, (8<<12) | $low );
-        output_1( $pass, $address, (6<<12) | ($link<<11) | ($inst_offset<<0) );
+        output_1( $pass, $address, (6<<12) | ($delay<<0) | ($inst_offset<<1) );
         return $address+6;
     }
     if ($extends==1) {
         output_1( $pass, $address, (8<<12) | $low );
-        output_1( $pass, $address, (6<<12) | ($link<<11) | ($inst_offset<<0) );
+        output_1( $pass, $address, (6<<12) | ($delay<<0) | ($inst_offset<<1) );
         return $address+4;
     }
-    output_1( $pass, $address, (6<<12) | ($link<<11) | ($inst_offset<<0) );
+    output_1( $pass, $address, (6<<12) | ($delay<<0) | ($inst_offset<<1) );
+    printf "Output %x\n",  (6<<12) | ($delay<<0) | ($inst_offset<<1);
     return $address+2;
 }
 
