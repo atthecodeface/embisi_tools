@@ -5,7 +5,7 @@
 $rd_re = "((r([0-9]+))|pc)";
 $rn_re = "((r([0-9]+))|acc)";
 $rm_re = "((r([0-9]+))|acc)";
-$imm_re = "#([0-9]+)";
+$imm_re = "#([a-fA-FxX0-9]+)";
 $label_re = "([a-zA-z][a-zA-Z_0-9]*)";
 
 #v alu_re, alu_ops
@@ -111,6 +111,10 @@ $op_regexps[ 9] = "str\\s+$rd_re\\s*,\\s*$str_postindex_re\\s*";
 $op_fns[     9] = assemble_str_postindex;
 $op_regexps[10] = "^\\s*(ldr|str)(|b|h)\\s+$rd_re\\s*,\\s*$no_index_re\\s*\$";
 $op_fns[    10] = assemble_mem_noindex;
+$op_regexps[11] = "^\\s*extrd\\s+$imm_re\\s*\$";
+$op_fns[    11] = assemble_extrd;
+$op_regexps[12] = "^\\s*(dcb|dch|dcw)\\s+$imm_re\\s*\$";
+$op_fns[    12] = assemble_dc;
 
 #a Support functions
 #f int_from_rd
@@ -138,6 +142,16 @@ sub int_from_rn {
     if ($rn =~ /r([0-9]+)/) {
         return $1;
     }
+}
+
+#f immediate_value
+sub immediate_value{
+    my($imm) = @_;
+
+    if ($imm=~/^0x(.*)$/) {
+        return hex($imm);
+    }
+    return $imm;
 }
 
 #a Label functions
@@ -188,7 +202,7 @@ sub assemble_alu_imm {
     $line =~ /$op_regexps[$re_num]/;
     $alu_op = $1;
     $rd = $2;
-    $imm = $5;
+    $imm = immediate_value($5);
     $value = (1<<12) |
              (($alu_ops{$alu_op})<<8) |
              (int_from_rd($rd)<<4) |
@@ -218,7 +232,7 @@ sub assemble_cnd_imm {
     $line =~ /$op_regexps[$re_num]/;
     $cnd_op = $1;
     $rn = $2;
-    $imm = $5;
+    $imm = immediate_value($5);
     $value = (3<<12) |
              (($cnd_ops{$cnd_op})<<8) |
              (int_from_rn($rn)<<4) |
@@ -248,7 +262,7 @@ sub assemble_shf_imm {
     $line =~ /$op_regexps[$re_num]/;
     $shf_op = $1;
     $rn = $2;
-    $imm = $5;
+    $imm = immediate_value($5);
     $value = (4<<12) |
              (($shf_ops{$shf_op})<<10) |
              (1<<9) |
@@ -263,7 +277,7 @@ sub assemble_shf_imm {
 sub assemble_extimm {
     my ($pass, $line, $re_num, $address) = @_;
     $line =~ /$op_regexps[$re_num]/;
-    $imm = $1;
+    $imm = immediate_value($1);
     $high = ($imm>>18)&0x3fff;
     $low  = ($imm>>4)&0x3fff;
     if ( (($high==0x3fff) && ($low&0x2000)) ||
@@ -273,6 +287,33 @@ sub assemble_extimm {
     }
     output_2( $pass, $address, (8<<12) | $high, (8<<12) | $low );
     return $address+4;
+}
+
+#f assemble_extrd
+sub assemble_extrd {
+    my ($pass, $line, $re_num, $address) = @_;
+    $line =~ /$op_regexps[$re_num]/;
+    $imm = immediate_value($1);
+    output_1( $pass, $address, (12<<12) | (($imm&0xff)<<4) );
+    return $address+2;
+}
+
+#f assemble_dc
+sub assemble_dc {
+    my ($pass, $line, $re_num, $address) = @_;
+    $line =~ /$op_regexps[$re_num]/;
+    $type = $1;
+    $imm = immediate_value($2);
+    if ($type eq "dch") {
+        output_1( $pass, $address, $imm );
+        return $address+2;
+    }
+    if ($type eq "dcw") {
+        output_2( $pass, $address, $imm&0xffff, ($imm>>16)&0xffff );
+        return $address+4;
+    }
+    output_1( $pass, $address, $imm&0xff );
+    return $address+2;
 }
 
 #f assemble_branch
