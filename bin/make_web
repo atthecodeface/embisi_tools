@@ -26,7 +26,7 @@ sub clean_path {
 
 #f append_to_references
 sub append_to_references {
-    my ($ref) = @_;
+    my ($ref, $source_hint) = @_;
     my($clean_ref);
     $clean_ref = clean_path($ref);
     return if ($clean_ref eq "");
@@ -35,11 +35,12 @@ sub append_to_references {
     #print "Add reference $clean_ref ($ref)\n";
     $references[++$#references] = $clean_ref;
     $handled{$clean_ref} = "added";
+    $source_hints{$clean_ref} = $source_hint;
 }
 
 #f parse_to_html_file
 sub parse_to_html_file {
-    my($source_dir, $INFILE, $OUTFILE) = @_;
+    my($source_dir, $INFILE, $OUTFILE, $source_hint) = @_;
 
     $in_tag = 0;
     $tag_type = "";
@@ -102,28 +103,28 @@ sub parse_to_html_file {
                         if ($ref=~/:/) {
                         } elsif ($ref=~/^(.*)\.php$/) {
                             $ref = "$1.html";
-                            append_to_references( "$source_dir/$oref" );
+                            append_to_references( "$source_dir/$oref", $source_hint );
                         } elsif ($ref=~/^(.*)\.html$/) {
                             $ref = "$1.html";
-                            append_to_references( "$source_dir/$oref" );
+                            append_to_references( "$source_dir/$oref", $source_hint );
                         } elsif ($ref=~/^(.*)\.htm$/) {
                             $ref = "$1.htm";
-                            append_to_references( "$source_dir/$oref" );
+                            append_to_references( "$source_dir/$oref", $source_hint );
                         } elsif ($ref=~/^(.*\.[^\/]*)$/) {
                             $ref = "$1";
-                            append_to_references( "$source_dir/$oref" );
+                            append_to_references( "$source_dir/$oref", $source_hint );
                         } elsif ( ($ref=~/\/[^.]*$/) ||
                                   ($ref=~/[^.]*$/) ) {
                             $ref .= "/" unless ($ref=~/\/$/);
                             if (-f "$source_dir/${ref}index.php") {
                                 $ref .= "index.html";
-                                append_to_references( "$source_dir/$oref/index.php" );
+                                append_to_references( "$source_dir/$oref/index.php", $source_hint );
                             } elsif (-f "$source_dir/${ref}index.html") {
                                 $ref .= "index.html";
-                                append_to_references( "$source_dir/$oref/index.html" );
+                                append_to_references( "$source_dir/$oref/index.html", $source_hint );
                             } else {
                                 $ref .= "index.htm";
-                                append_to_references( "$source_dir/$oref/index.htm" );
+                                append_to_references( "$source_dir/$oref/index.htm", $source_hint );
                             }
                         };
                         #print "A href $source_dir $ref ($oref)\n";
@@ -131,7 +132,7 @@ sub parse_to_html_file {
                     # Look out for 'a href=', 'img src=',
                     if (($tag_type eq "img") && ($tag_option eq "src")) {
                         #print "Img src $source_dir/$ref\n";
-                        append_to_references( "$source_dir/$ref" );
+                        append_to_references( "$source_dir/$ref", $source_hint );
                     }
                     $tag_option = "";
                     $ref="$ref$label";
@@ -160,32 +161,32 @@ sub parse_to_html_file {
 
 #f compile_php_file
 sub compile_php_file {
-    my ($source_dir, $source, $destination) = @_;
+    my ($source_dir, $source, $destination, $link_hint) = @_;
 
-    print "Compile PHP file '$source' to '$destination'\n";
+    print "Compile PHP file '$source' to '$destination' (linking hint $link_hint)\n";
 
     die "Did not expect file $destination to exist" if ( -f "$destination");
     die "File $source should exist" if ( ! -f "$source");
 
     open FILE, "/usr/bin/php -f $source |";
     die "Failed to open $destination\n" unless (open OUTFILE, ">$destination");
-    parse_to_html_file( $source_dir, FILE, OUTFILE );
+    parse_to_html_file( $source_dir, FILE, OUTFILE, $source );
     close FILE;
     close OUTFILE;
 }
 
 #f copy_html_file
 sub copy_html_file {
-    my ($source_dir, $source, $destination) = @_;
+    my ($source_dir, $source, $destination, $link_hint) = @_;
 
-    print "Copy HTML file '$source' to '$destination'\n";
+    print "Copy HTML file '$source' to '$destination' (linking hint $link_hint)\n";
 
     die "Did not expect file $destination to exist" if ( -f "$destination");
     die "File $source should exist" if ( ! -f "$source");
 
     open FILE, "$source";
     die "Failed to open $destination\n" unless (open OUTFILE, ">$destination");
-    parse_to_html_file( $source_dir, FILE, OUTFILE );
+    parse_to_html_file( $source_dir, FILE, OUTFILE, $source );
     close FILE;
     close OUTFILE;
 }
@@ -218,14 +219,15 @@ sub ensure_directory {
 }
 
 #a main
-$syntax = "Syntax: make_web <source_tree> <destination_tree>\n\tThe source must have an index.php file, and destination directory must not exist";
-die $syntax unless ($#ARGV>=1);
+$syntax = "Syntax: make_web <source_tree> <destination_tree> <index filename>\n\tThe source must have an index.php file, and destination directory must not exist";
+die $syntax unless ($#ARGV>=2);
 $source_dir = $ARGV[0];
 $dest_dir = $ARGV[1];
-die $syntax if ( !-f "$source_dir/index.php" );
+$index_filename = $ARGV[2];
+die $syntax if ( !-f "$source_dir/$index_filename" );
 die $syntax if ( -d "$dest_dir" );
 
-append_to_references( "$source_dir/index.php" );
+append_to_references( "$source_dir/$index_filename", "toplevel index" );
 $i = 0;
 while ($i<=$#references) {
     $ref = $references[$i];
@@ -241,12 +243,12 @@ while ($i<=$#references) {
         if ($file =~ /\.php$/) {
             $out = $file;
             $out =~ s/\.php/\.html/;
-            compile_php_file( "$source_dir/$dir", "$source_dir/${adir}$file", "$dest_dir/${adir}$out" );
+            compile_php_file( "$source_dir/$dir", "$source_dir/${adir}$file", "$dest_dir/${adir}$out", $source_hints{$ref} );
         } elsif ($file =~ /\.html$/) {
-            copy_html_file( "$source_dir/$dir", "$source_dir/${adir}$file", "$dest_dir/${adir}$file" );
+            copy_html_file( "$source_dir/$dir", "$source_dir/${adir}$file", "$dest_dir/${adir}$file", $source_hints{$ref} );
         } else {
-            die "Bad link to file $source_dir/${adir}$file\n" unless (-f "$source_dir/${adir}$file");
-            die unless (system("/bin/cp $source_dir/${adir}$file $dest_dir/${adir}$file")==0);
+            die "Bad link to file $source_dir/${adir}$file (linked from hint $source_hints{$ref})\n" unless (-f "$source_dir/${adir}$file");
+            die "Failed top copy file $file (linked from hint $source_hints{$ref})\n" unless (system("/bin/cp $source_dir/${adir}$file $dest_dir/${adir}$file")==0);
         }
     }
     $i++;
