@@ -1,0 +1,31 @@
+#!/usr/bin/perl
+
+#a Bin to mif conversion functions
+
+#a Test/main routine
+$syntax = "Syntax: bin_to_mif <binary> <mif output>\n";
+die $syntax unless ($#ARGV==1);
+$bin_file = $ARGV[0];
+$mif_file = $ARGV[1];
+die $syntax if ( !-f "$bin_file" );
+
+open BIN, "<$bin_file";
+open MIF, ">$mif_file";
+binmode(BIN);
+$address = 0;
+$#ch=4;
+while (read(BIN, $bin, 4)) {
+    for ($i=0; $i<4; $i++) {
+        $ch[$i] = ord(substr($bin,$i,1));
+    }
+    printf MIF "%08x : %02x%02x%02x%02x\n", $address, $ch[3], $ch[2], $ch[1], $ch[0];
+    $address++;
+}
+close BIN;
+close MIF;
+
+#a Editor preferences and notes
+# Local Variables: ***
+# mode: perl ***
+# outline-regexp: "#a\\\|[\t ]*#[b-z][\t ]" ***
+# End: ***
