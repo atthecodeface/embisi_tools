@@ -3,10 +3,30 @@ use lib $ENV{"TNBT_CVS_ROOT"}."/common/bin";
 require "lib_getopts.pl";
 
 #a Bin to mif conversion functions
+#f bin_to_coe
+sub bin_to_coe
+{
+    my ($offset_address, $BIN, $MIF, $swp) = @_;
+    printf $MIF "MEMORY_INITIALIZATION_RADIX=16;\n";
+    printf $MIF "MEMORY_INITIALIZATION_VECTOR=\n";
+    $#ch=4;
+    my($need_comma) = 0;
+    while (read($BIN, $bin, 4)) {
+        for ($i=0; $i<4; $i++) {
+            $ch[$i] = ord(substr($bin,$i,1));
+        }
+        print $MIF ",\n" if ($need_comma);
+        $need_comma = 1;
+        printf $MIF "%02x%02x%02x%02x", $ch[3], $ch[2], $ch[1], $ch[0] if (!$swp);
+        printf $MIF "%02x%02x%02x%02x", $ch[0], $ch[1], $ch[2], $ch[3] if ($swp);
+    }
+    print $MIF ";\n";
+}
+
 #f bin_to_mif
 sub bin_to_mif
 {
-    my ($offset_address, $BIN, $MIF) = @_;
+    my ($offset_address, $BIN, $MIF, $swp) = @_;
     my ($address_not_reqd) = 0;
     $#ch=4;
     while (read($BIN, $bin, 4)) {
@@ -14,10 +34,12 @@ sub bin_to_mif
             $ch[$i] = ord(substr($bin,$i,1));
         }
         if (!$address_not_reqd) {
-            printf $MIF "%08x : %02x%02x%02x%02x\n", $address, $ch[3], $ch[2], $ch[1], $ch[0];
+            printf $MIF "%08x : %02x%02x%02x%02x\n", $address, $ch[3], $ch[2], $ch[1], $ch[0] if (!$swp);
+            printf $MIF "%08x : %02x%02x%02x%02x\n", $address, $ch[0], $ch[1], $ch[2], $ch[3] if ($swp);
             $address_not_reqd++;
         } else {
-            printf $MIF "%02x%02x%02x%02x\n", $ch[3], $ch[2], $ch[1], $ch[0];
+            printf $MIF "%02x%02x%02x%02x\n", $ch[3], $ch[2], $ch[1], $ch[0] if (!$swp);
+            printf $MIF "%02x%02x%02x%02x\n", $ch[0], $ch[1], $ch[2], $ch[3] if ($swp);
             $address_not_reqd++;
             $address_not_reqd = 0 if ($address_not_reqd>255);
         }
@@ -28,18 +50,20 @@ sub bin_to_mif
 #f print_usage
 sub print_usage {
    print "\nUsage: ";
-   print $0," [-a <base address>] [-A] [-h] [-v] [-f <binary filename>] [-o <output filename>]\n";
+   print $0," [-a <base address>] [-A] [-c] [-h] [-v] [-s] [-f <binary filename>] [-o <output filename>]\n";
    print "Argument Descriptions :\n";
    print "\t-a               : Set base address for MIF file data\n";
    print "\t-A               : Append output to output file\n";
+   print "\t-c               : Create 'coe' file instead of MIF file\n";
    print "\t-f               : Specify name of binary file to use (else uses STDIN)\n";
    print "\t-h               : Print this usage message\n";
+   print "\t-s               : Endian-swap (byte reverse) binary data\n";
    print "\t-o               : Specify name of output file to use (else uses STDOUT)\n";
    print "\t-v               : Print this usage message\n";
 }
 
 #a Test/main routine
-&Getopts ('a:Af:o:hv');
+&Getopts ('a:cAf:o:hsv');
 
 if (($opt_v) || ($opt_h)) {
    print_usage;
@@ -63,12 +87,19 @@ if ($opt_o ne "") {
 } else {
     $mif_file = STDOUT;
 }
+
+$swp = 0;
+$swp = 1 if ($opt_s ne "");
   
 binmode(BIN);
 $address = 0;
 $address = hex($opt_a) if ($opt_a ne "");
 
-bin_to_mif( $address, $bin_file, $mif_file );
+if ($opt_c) {
+    bin_to_coe( $address, $bin_file, $mif_file, $swp );
+} else {
+    bin_to_mif( $address, $bin_file, $mif_file, $swp );
+}
 close $bin_file;
 close $mif_file;
 
