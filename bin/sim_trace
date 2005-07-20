@@ -1,0 +1,124 @@
+#!/usr/bin/perl
+use lib $ENV{"TNBT_CVS_ROOT"}."/common/bin";
+require "lib_getopts.pl";
+
+$disass[0] = disass_arith;
+$disass[1] = disass_logic;
+$disass[2] = disass_shift;
+$disass[4] = disass_load;
+$disass[5] = disass_store;
+@reg_types = split(/ /, "R RIND PERIPH POST SPEC INT NONE NONEB");
+@arith_ops = split(/ /, "IADD IADC ISUB ISBC IRSB IRSC IINIT x9 IMLA IMLB IDVA IDVB x12 x13 x14 IWRFLG");
+@logic_ops = split(/ /, "IAND IOR IXOR IORN IBIC IMOV IMVN IANDCNT IANDXOR IXORFIRST IXORLAST IBITREV IBYTEREV x13 x14 IRDFLG");
+@shift_ops = split(/ /, "ILDL ILSR IASR IROR IROR33 x5 x6 x7 x8x x9 x10 x11 x12 x13 x14 x15");
+
+sub disass_arith {
+    my($sub, $rd_t, $rd_r, $rm_t, $rm_r, $rn_t, $rn_r, $is_imm, $imm)=@_;
+    if ($is_imm) {
+        $result = "$arith_ops[$sub] ".reg_name($rd_t,$rd_r).", ".reg_name($rn_t,$rn_r).", #".sprintf("%08x",$imm);
+    } else {
+        $result = "$arith_ops[$sub] ".reg_name($rd_t,$rd_r).", ".reg_name($rn_t,$rn_r).", ".reg_name($rm_t,$rm_r);
+    }
+    return $result;
+}
+sub disass_logic {
+    my($sub, $rd_t, $rd_r, $rm_t, $rm_r, $rn_t, $rn_r, $is_imm, $imm)=@_;
+    if ($is_imm) {
+        $result = "$logic_ops[$sub] ".reg_name($rd_t,$rd_r).", ".reg_name($rn_t,$rn_r).", #".sprintf("%08x",$imm);
+    } else {
+        $result = "$logic_ops[$sub] ".reg_name($rd_t,$rd_r).", ".reg_name($rn_t,$rn_r).", ".reg_name($rm_t,$rm_r);
+    }
+    return $result;
+}
+sub disass_shift {
+    my($sub)=@_;
+    $result = $shift_ops[$sub];
+    return $result;
+}
+sub disass_load {
+    my($sub)=@_;
+    return "ILDR";
+}
+sub disass_store {
+    my($sub)=@_;
+    return "ISTR";
+}
+
+sub reg_name {
+    my($t,$r) = @_;
+    return $reg_types[$t].$r;
+}
+
+sub clocked {
+    my($time, $clk) = @_;
+    $pc = $values{"alu_inst__pc"};
+    $valid = $values{"alu_inst__valid"};
+    $execing =  $values{"gip_pipeline_executing"};
+    if ($valid) {
+        printf "$time:$clk:$execing:%08x:", $pc-8;
+        $class = $values{"alu_inst__gip_ins_class"};
+        $subclass = $values{"alu_inst__gip_ins_subclass"};
+        $rm_t = $values{"alu_inst__gip_ins_rm__type"};
+        $rm_r = $values{"alu_inst__gip_ins_rm__r"};
+        $rn_t = $values{"alu_inst__gip_ins_rn__type"};
+        $rn_r = $values{"alu_inst__gip_ins_rn__r"};
+        $rd_t = $values{"alu_inst__gip_ins_rd__type"};
+        $rd_r = $values{"alu_inst__gip_ins_rd__r"};
+        $is_imm = $values{"alu_inst__rm_is_imm"};
+        $imm = $values{"alu_inst__immediate"};
+        $inst = $disass[$class]($subclass, $rd_t, $rd_r, $rm_t, $rm_r, $rn_t, $rn_r, $is_imm, $imm );
+        print "$inst\n";
+    }
+    $rfw_t = $values{"rfw_rd__type"};
+    if ($rfw_t<=5) {
+        $rfw_r = $values{"rfw_rd__r"};
+        $rd = reg_name($rfw_t, $rfw_r);
+        printf "$time:$clk:%s <= %08x\n", $rd, $values{"gip_pipeline_rfw_data"};
+    }
+}
+
+$stage = 0;
+@signals = split(/ /, "alu_inst__pc alu_inst__valid alu_inst__gip_ins_class alu_inst__gip_ins_subclass alu_inst__gip_ins_rd__r alu_inst__gip_ins_rd__type  alu_inst__gip_ins_rn__r alu_inst__gip_ins_rn__type  alu_inst__gip_ins_rm__r alu_inst__gip_ins_rm__type alu_inst__immediate alu_inst__rm_is_imm gip_pipeline_executing rfw_rd__r rfw_rd__type gip_pipeline_rfw_data");
+foreach $i (@signals) {
+    $exists{$i} = 1;
+    $idents{$i} = "NO IDENT";
+    $values{$i} = 0;
+}
+$time = 0;
+$last_time = 0;
+while (<>) {
+#    chomp;
+    $line = $_;
+    if ($line =~ /.var wire [0-9]+ ([a-zA-Z]+) ([a-zA-Z_]+) .end/) {
+        $ident = $1;
+        $name = $2;
+        if ($exists{$name}) {
+            $idents{$name} = $ident;
+            $sigs{$ident} = $name;
+        }
+    }
+    if ($line =~ /.enddefinitions/) {
+        $stage=3;
+    }
+    if ($stage==3) {
+        if ($line =~ /\#([0-9]*)/) {
+            $time=$1;
+            if (int($last_time/96) != int($time/96)) {
+                clocked($last_time, $last_time/96);
+                $last_time = $time;
+            }
+        }
+        if ($line =~ /(b|)([0-9]+)\s*([a-zA-Z]+)/) {
+            $ident = $3;
+            if ($sigs{$ident}) {
+                $values{$sigs{$ident}} = oct("0b0$2");
+            }
+        }
+    }
+}
+
+#a Editor preferences and notes
+# Local Variables: ***
+# mode: perl ***
+# outline-regexp: "#a\\\|[\t ]*#[b-z][\t ]" ***
+# End: ***

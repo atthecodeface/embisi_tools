@@ -26,24 +26,27 @@ sub bin_to_coe
 #f bin_to_mif
 sub bin_to_mif
 {
-    my ($offset_address, $BIN, $MIF, $swp) = @_;
+    my ($offset_address, $BIN, $MIF, $swp, $dbl) = @_;
     my ($address_not_reqd) = 0;
     $#ch=4;
+    $j=0;
     while (read($BIN, $bin, 4)) {
-        for ($i=0; $i<4; $i++) {
-            $ch[$i] = ord(substr($bin,$i,1));
+        for ($j=0; $j<=$dbl; $j++) {
+            for ($i=0; $i<4; $i++) {
+                $ch[$i] = ord(substr($bin,$i,1));
+            }
+            if (!$address_not_reqd) {
+                printf $MIF "%08x : %02x%02x%02x%02x\n", $address, $ch[3], $ch[2], $ch[1], $ch[0] if (!$swp);
+                printf $MIF "%08x : %02x%02x%02x%02x\n", $address, $ch[0], $ch[1], $ch[2], $ch[3] if ($swp);
+                $address_not_reqd++;
+            } else {
+                printf $MIF "%02x%02x%02x%02x\n", $ch[3], $ch[2], $ch[1], $ch[0] if (!$swp);
+                printf $MIF "%02x%02x%02x%02x\n", $ch[0], $ch[1], $ch[2], $ch[3] if ($swp);
+                $address_not_reqd++;
+                $address_not_reqd = 0 if ($address_not_reqd>255);
+            }
+            $address++;
         }
-        if (!$address_not_reqd) {
-            printf $MIF "%08x : %02x%02x%02x%02x\n", $address, $ch[3], $ch[2], $ch[1], $ch[0] if (!$swp);
-            printf $MIF "%08x : %02x%02x%02x%02x\n", $address, $ch[0], $ch[1], $ch[2], $ch[3] if ($swp);
-            $address_not_reqd++;
-        } else {
-            printf $MIF "%02x%02x%02x%02x\n", $ch[3], $ch[2], $ch[1], $ch[0] if (!$swp);
-            printf $MIF "%02x%02x%02x%02x\n", $ch[0], $ch[1], $ch[2], $ch[3] if ($swp);
-            $address_not_reqd++;
-            $address_not_reqd = 0 if ($address_not_reqd>255);
-        }
-        $address++;
     }
 }
 
@@ -63,7 +66,7 @@ sub print_usage {
 }
 
 #a Test/main routine
-&Getopts ('a:cAf:o:hsv');
+&Getopts ('a:cdAf:o:hsv');
 
 if (($opt_v) || ($opt_h)) {
    print_usage;
@@ -88,9 +91,12 @@ if ($opt_o ne "") {
     $mif_file = STDOUT;
 }
 
-$swp = 0;
+$swp = 0; # Byte swap the data for big/little endian
 $swp = 1 if ($opt_s ne "");
   
+$dbl = 0; # Double each word out, for DDR which read 2 words per actual word
+$dbl = 1 if ($opt_d ne ""); 
+
 binmode(BIN);
 $address = 0;
 $address = hex($opt_a) if ($opt_a ne "");
@@ -98,7 +104,7 @@ $address = hex($opt_a) if ($opt_a ne "");
 if ($opt_c) {
     bin_to_coe( $address, $bin_file, $mif_file, $swp );
 } else {
-    bin_to_mif( $address, $bin_file, $mif_file, $swp );
+    bin_to_mif( $address, $bin_file, $mif_file, $swp, $dbl );
 }
 close $bin_file;
 close $mif_file;
