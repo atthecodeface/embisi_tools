@@ -1,0 +1,46 @@
+#!/usr/bin/perl
+
+$pattern_firsts{"to_home"} = "adslrouter.winslowstark.org";
+$pattern_firsts{"to_intel"} = "192.168.1.64";
+$pattern_seconds{"to_home"} = "192.168.1.64";
+$pattern_seconds{"to_intel"} = "adslrouter.winslowstark.org";
+
+if ($pattern_firsts{$ARGV[0]})
+{
+	$pattern_first = $pattern_firsts{$ARGV[0]};
+	$pattern_second = $pattern_seconds{$ARGV[0]};
+}
+elsif ($ARGV[1])
+{
+	$pattern_first = $ARGV[0];
+	$pattern_second = $ARGV[1];
+}
+else
+{
+	die("Syntax: to_home | to_intel | pair of patterns" );
+}
+
+print "Using pattern $pattern_first to $pattern_second\n";
+
+open( FILES, "find . -name 'Root' -print|");
+while (<FILES>) {
+	chomp;
+	$file = $_;
+	next unless ($file =~ /CVS\/Root/);
+	print "Modifying $file\n";
+	open ( INROOTFILE, $file );
+	open ( OUTROOTFILE, ">$file.new" );
+	while (<INROOTFILE>) {
+		chomp;
+		$ln = $_;
+		$ln =~ s/$pattern_first/$pattern_second/g;
+		print OUTROOTFILE "$ln\n";
+	}
+	close INROOTFILE;
+	close OUTROOTFILE;
+	unlink "$file.bak";
+	link $file, "$file.bak";
+	unlink $file;
+	rename "$file.new", $file;
+}
+close FILES;
